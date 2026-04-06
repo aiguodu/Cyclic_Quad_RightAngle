@@ -1,98 +1,246 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import { useState, useEffect } from 'react';
-import { GeometrySVG } from './components/GeometrySVG';
-import { StepPanel } from './components/StepPanel';
-import { Subtitle } from './components/Subtitle';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ChevronRight, ChevronLeft, RotateCcw, Play, Pause, Loader } from 'lucide-react';
 import { steps } from './data/steps';
-import { ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
-import { ttsService } from './services/ttsService';
+import { GeometrySVG } from './components/GeometrySVG';
+import { generateAndPlayTts, stopCurrentTts } from './ttsService';
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+type TtsState = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
+
+// ---------------------------------------------------------------------------
+// Main Component
+// ---------------------------------------------------------------------------
 export default function App() {
-  const [step, setStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(0);
 
+  // TTS state
+  const [ttsState, setTtsState] = useState<TtsState>('idle');
+  const [ttsError, setTtsError] = useState<string | null>(null);
+  const [subtitle, setSubtitle] = useState<string | null>(null);   // visible subtitle text
+  const [subtitleVisible, setSubtitleVisible] = useState(false);   // fade control
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Stop TTS when step changes
   useEffect(() => {
-    // 当步骤改变时，自动播放当前步骤的 TTS
-    ttsService.play(steps[step].tts);
-    
-    // 组件卸载或步骤改变前，停止上一个 TTS
-    return () => {
-      ttsService.stop();
-    };
-  }, [step]);
+    stopCurrentTts();
+    audioRef.current = null;
+    setTtsState('idle');
+    setTtsError(null);
+    setSubtitle(null);
+    setSubtitleVisible(false);
+  }, [currentStep]);
 
-  const handleNext = () => {
-    if (step < steps.length - 1) {
-      setStep(step + 1);
+  // ---------------------------------------------------------------------------
+  // TTS playback
+  // ---------------------------------------------------------------------------
+  const handlePlayPause = useCallback(async () => {
+    if (ttsState === 'loading') return;
+
+    if (ttsState === 'playing') {
+      audioRef.current?.pause();
+      setTtsState('paused');
+      return;
+    }
+
+    if (ttsState === 'paused' && audioRef.current) {
+      audioRef.current.play();
+      setTtsState('playing');
+      return;
+    }
+
+    // Start fresh
+    setTtsState('loading');
+    setTtsError(null);
+    const ttsText = steps[currentStep].tts;
+    setSubtitle(ttsText);
+    setSubtitleVisible(true);
+
+    try {
+      const audio = await generateAndPlayTts(
+        ttsText,
+        undefined,
+        () => {
+          setTtsState('idle');
+        }
+      );
+      audioRef.current = audio;
+      setTtsState('playing');
+    } catch (err) {
+      console.error('[TTS]', err);
+      setTtsError('TTS 生成失败，请检查代理服务是否运行。');
+      setTtsState('error');
+      setSubtitleVisible(false);
+    }
+  }, [ttsState, currentStep]);
+
+  // ---------------------------------------------------------------------------
+  // Render helpers
+  // ---------------------------------------------------------------------------
+  const ttsIcon = () => {
+    switch (ttsState) {
+      case 'loading': return <Loader className="w-5 h-5 animate-spin" />;
+      case 'playing': return <Pause className="w-5 h-5" />;
+      default:        return <Play  className="w-5 h-5" />;
     }
   };
 
-  const handlePrev = () => {
-    if (step > 0) {
-      setStep(step - 1);
+  const ttsLabel = () => {
+    switch (ttsState) {
+      case 'loading': return '生成中…';
+      case 'playing': return '暂停讲解';
+      case 'paused':  return '继续讲解';
+      default:        return '🧑‍🏫 Tina老师讲解';
     }
   };
 
-  const handleReset = () => {
-    setStep(0);
-  };
+  // ---------------------------------------------------------------------------
+  // Navigation
+  // ---------------------------------------------------------------------------
+  const nextStep = () => setCurrentStep(s => Math.min(s + 1, steps.length - 1));
+  const prevStep = () => setCurrentStep(s => Math.max(s - 1, 0));
+  const reset = () => setCurrentStep(0);
 
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4 font-sans">
-      <div className="w-full max-w-6xl mx-auto flex flex-col bg-white rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+    <div className="min-h-screen bg-slate-100 p-4 md:p-6 flex items-center justify-center font-sans">
+      <div className="flex flex-col w-full max-w-6xl mx-auto bg-slate-50 rounded-2xl shadow-xl overflow-hidden border border-slate-200">
         
-        {/* Main Content Area */}
+        {/* ── Header ── */}
+        <header className="bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+            <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-sm font-bold">
+              几何共圆
+            </span>
+            <h1 className="text-xl font-bold text-slate-800">
+              四边形共斜边直角问题：求解 BD 的长度
+            </h1>
+          </div>
+          <div className="text-sm font-medium text-slate-500 bg-slate-100 px-3 py-1 rounded-full">
+            进度 {currentStep + 1} / {steps.length}
+          </div>
+        </header>
+
+        {/* ── Main Content Area ── */}
         <div className="flex flex-col md:flex-row h-[570px]">
-          {/* Left: Geometry SVG */}
-          <div className="w-full md:w-[55%] flex flex-col border-b md:border-b-0 md:border-r border-slate-200 bg-white">
-            <div className="flex-1 relative min-h-0">
-              <GeometrySVG step={step} />
+          
+          {/* ── Left: Visual Area ── */}
+          <div className="w-full md:w-[55%] relative bg-white border-r border-slate-200 flex items-center justify-center overflow-hidden">
+            <div className="w-full h-full p-6 flex items-center justify-center">
+              <GeometrySVG step={currentStep} />
             </div>
-            <Subtitle text={steps[step].tts} />
+
+            {/* Subtitle Overlay */}
+            <AnimatePresence>
+              {subtitleVisible && subtitle && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 12 }}
+                  transition={{ duration: 0.35 }}
+                  className="absolute bottom-4 left-4 right-4 pointer-events-none z-20"
+                >
+                  <div className="bg-slate-900/80 backdrop-blur-md text-white p-4 rounded-xl shadow-2xl border border-white/10">
+                    <p className="text-sm leading-relaxed text-center font-medium tracking-wide">
+                      {subtitle}
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
-          {/* Right: Steps Panel */}
-          <div className="w-full md:w-[45%] h-full">
-            <StepPanel step={step} steps={steps} />
+          {/* ── Right: Explanation Area ── */}
+          <div className="w-full md:w-[45%] bg-slate-50 flex flex-col overflow-y-auto">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={currentStep}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+                transition={{ duration: 0.3 }}
+                className="flex-1 p-6 flex flex-col gap-4"
+              >
+                {/* Step title */}
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-white rounded-lg shadow-sm border border-slate-100 text-blue-500">
+                    {steps[currentStep].icon}
+                  </div>
+                  <h2 className="text-xl font-bold text-slate-800">{steps[currentStep].title}</h2>
+                </div>
+
+                {/* Description */}
+                <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                  <p className="text-slate-700 text-lg leading-relaxed font-medium">
+                    {steps[currentStep].desc}
+                  </p>
+                </div>
+
+                {/* Detail derivation */}
+                <div className="bg-slate-100 p-5 rounded-xl border border-slate-200">
+                  <h3 className="text-xs font-bold text-slate-500 mb-3 uppercase tracking-wider">详细推导过程</h3>
+                  <div className="text-slate-600 leading-loose whitespace-pre-line text-sm">
+                    {steps[currentStep].detail}
+                  </div>
+                </div>
+
+                {/* TTS Control */}
+                <div className="mt-auto pt-4">
+                  <button
+                    onClick={handlePlayPause}
+                    disabled={ttsState === 'loading'}
+                    className={`flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-white transition-all shadow-lg ${
+                      ttsState === 'playing' ? 'bg-amber-500 hover:bg-amber-600 shadow-amber-200' :
+                      ttsError ? 'bg-rose-500 hover:bg-rose-600 shadow-rose-200' :
+                      'bg-blue-600 hover:bg-blue-700 shadow-blue-200'
+                    } disabled:opacity-70 disabled:cursor-not-allowed`}
+                  >
+                    {ttsIcon()}
+                    {ttsError ? '重试朗读' : ttsLabel()}
+                  </button>
+                  {ttsError && (
+                    <p className="text-rose-500 text-xs mt-2 text-center font-medium">
+                      {ttsError}
+                    </p>
+                  )}
+                </div>
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
 
-        {/* Footer Controls */}
-        <div className="bg-white border-t border-slate-200 p-4 flex items-center justify-between">
+        {/* ── Footer ── */}
+        <footer className="bg-white px-6 py-4 border-t border-slate-200 flex justify-between items-center">
           <button 
-            onClick={handleReset}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+            onClick={reset}
+            className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors font-medium text-sm px-4 py-2 hover:bg-slate-50 rounded-lg"
           >
             <RotateCcw className="w-4 h-4" />
             重新开始
           </button>
           
           <div className="flex items-center gap-3">
-            <button 
-              onClick={handlePrev}
-              disabled={step === 0}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            <button
+              onClick={prevStep}
+              disabled={currentStep === 0}
+              className="flex items-center gap-1 px-5 py-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium shadow-sm"
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-5 h-5" />
               上一步
             </button>
-            <button 
-              onClick={handleNext}
-              disabled={step === steps.length - 1}
-              className="flex items-center gap-2 px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+            <button
+              onClick={nextStep}
+              disabled={currentStep === steps.length - 1}
+              className="flex items-center gap-1 px-5 py-2.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all text-sm font-medium shadow-sm"
             >
-              {step === steps.length - 1 ? '讲解完成' : '下一步 (讲解)'}
-              {step !== steps.length - 1 && <ChevronRight className="w-4 h-4" />}
+              {currentStep === steps.length - 1 ? '讲解完成' : '下一步'}
+              <ChevronRight className="w-5 h-5" />
             </button>
           </div>
-        </div>
+        </footer>
 
       </div>
     </div>
   );
 }
-
-

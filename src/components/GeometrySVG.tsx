@@ -78,15 +78,29 @@ export function GeometrySVG({ step }: { step: number }) {
               />
               <path d={getRightAnglePath(D, F, C)} fill="none" stroke="#ef4444" strokeWidth="1.5" />
               <circle cx={F.x} cy={F.y} r="3" fill="#ef4444" />
-              <text x={F.x + 10} y={F.y + 20} className="text-sm font-serif italic fill-slate-700">F</text>
+              <text x={F.x} y={F.y + 10} className="text-sm font-serif italic fill-slate-700">F</text>
             </motion.g>
           )}
         </AnimatePresence>
 
-        {/* Step 3: Lengths */}
+        {/* Step 3: Lengths & OD connection */}
         <AnimatePresence>
           {step >= 3 && (
             <motion.g initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+              {/* Highlight Triangle ODF */}
+              <motion.polygon 
+                points={`${O.x},${O.y} ${D.x},${D.y} ${F.x},${F.y}`} 
+                fill="rgba(168, 85, 247, 0.15)"
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}
+              />
+              
+              {/* Line OD (Radius) */}
+              <motion.line 
+                x1={O.x} y1={O.y} x2={D.x} y2={D.y} 
+                stroke="#a855f7" strokeWidth="2" strokeDasharray="4,2"
+                initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.8 }}
+              />
+
               <text x={(O.x + B.x)/2 - 20} y={(O.y + B.y)/2} className="text-xs font-bold fill-emerald-600">4</text>
               <text x={(D.x + F.x)/2 + 10} y={(D.y + F.y)/2} className="text-xs font-bold fill-red-600">2</text>
               <text x={(O.x + F.x)/2 - 10} y={(O.y + F.y)/2 - 10} className="text-xs font-bold fill-purple-600">2√3</text>
